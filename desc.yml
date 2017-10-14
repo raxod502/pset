@@ -1,0 +1,106 @@
+assignment: |
+  The name of the assignment.
+
+  Example: "Problem Set 7"
+
+class: |
+  The name of the class.
+
+  Example: "Math 171, Fall 2017"
+
+clearpage: |
+  Whether to start a new page after each problem solution.
+
+clearpage-option: |
+  Whether to make the 'clearpage' option customizable directly within
+  the document.
+
+document-macros: |
+  Additional document- or domain-specific macros to define.
+
+duedate: |
+  When the assignment is due.
+
+  Example: "Thursday, October 12"
+
+fancy-lists: |
+  Whether to load the 'enumitem' package. This is required in order to
+  customize list numbering.
+
+fancy-marginals: |
+  Whether to load the 'fancyhdr' package. This is required in order to add
+  content to the header and footer.
+
+fancy-math: |
+  Whether to load the 'amsmath' and 'amssymb' packages.
+
+fancy-page-layout: |
+  Whether to load the 'geometry' package. This is required in order to set the
+  margins.
+
+firstpage-header: |
+  Which information to display in the header on the first page, if a header is
+  displayed (see 'use-firstpage-header').
+
+firstpage-marginals: |
+  Which information to display in the header and footer on the first page, if
+  this is supposed to be different than the header and footer on other pages
+  (see 'use-firstpage-marginals' and 'primary-marginals').
+
+font-size: |
+  The primary font size of the document.
+
+if-order: |
+  The order in which to put the declarations of any options that are declared.
+
+indent-paragraphs: |
+  Whether to indent the first line of a paragraph, instead of inserting a blank
+  line between adjacent paragraphs. Setting this to false causes the 'parskip'
+  package to be loaded.
+
+list-number-style: |
+  The style of list numbering for each level of list, or for all simultaneously
+  if only a single string is given.
+
+macro-order: |
+  The order in which to put automatically generated document structure macros.
+
+margin: |
+  The margin size of the document.
+
+marginal-position-order: |
+  The order in which to place settings related to the content of headers and
+  footers.
+
+name: |
+  Your name.
+
+primary-marginals: |
+  Which information to display in the header and footer of most pages.
+
+problem-macro: |
+  Whether to generate a \problem macro instead of inserting the code inline for
+  each problem individually.
+
+problems: |
+  The names of the problems for which placeholders are to be inserted into the
+  document.
+
+show-page-count: |
+  Whether to display the total number of pages ("3 of 5") instead of just the
+  current page number ("3").
+
+solution-macro: |
+  Whether to generate a \solution macro instead of inserting the code inline
+  for each solution individually.
+
+use-firstpage-header: |
+  In addition to any configured marginals, also display a header on the first
+  page (see 'firstpage-header').
+
+use-firstpage-marginals: |
+  Use different header and footer content on the first page than on other
+  pages (see 'firstpage-marginals' and 'primary-marginals').
+
+variable-order: |
+  The order in which to place declarations of any variables that are declared.
