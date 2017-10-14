@@ -1,0 +1,65 @@
+{
+  "assignment": null,
+  "class": null,
+  "clearpage": true,
+  "clearpage-option": true,
+  "document-macros": [],
+  "duedate": null,
+  "fancy-lists": true,
+  "fancy-marginals": true,
+  "fancy-math": true,
+  "fancy-page-layout": true,
+  "firstpage-header": [
+    "name",
+    "class",
+    "assignment",
+    "duedate"
+  ],
+  "firstpage-marginals": {
+    "rfoot": "pagenumber"
+  },
+  "font-size": 11,
+  "if-order": [
+    "clearpage"
+  ],
+  "indent-paragraphs": false,
+  "list-number-style": [
+    "(a)",
+    "(i)",
+    "(1)",
+    "(A)"
+  ],
+  "macro-order": [
+    "problem",
+    "solution",
+    "maybeclearpage"
+  ],
+  "margin": "0.75in",
+  "marginal-position-order": [
+    "lhead",
+    "chead",
+    "rhead",
+    "lfoot",
+    "rfoot"
+  ],
+  "name": null,
+  "primary-marginals": {
+    "chead": "assignment",
+    "lfoot": "duedate",
+    "lhead": "name",
+    "rfoot": "pagenumber",
+    "rhead": "class"
+  },
+  "problem-macro": true,
+  "problems": null,
+  "show-page-count": true,
+  "solution-macro": true,
+  "use-firstpage-header": false,
+  "use-firstpage-marginals": false,
+  "variable-order": [
+    "name",
+    "class",
+    "assignment",
+    "duedate"
+  ]
+}
