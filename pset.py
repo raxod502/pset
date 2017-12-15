@@ -5,80 +5,153 @@ import os
 import re
 import sys
 
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    class yaml:
+        def __getattr__(self, name):
+            return None
+    YAML_AVAILABLE = False
+
+"""List of possible base filenames for pset configuration files."""
 CONFIG_ROOTS = [".pset", "pset"]
-CONFIG_EXTENSIONS = ["yaml", "yml", "json"]
+
+"""List of possible file extensions for JSON files."""
+JSON_EXTENSIONS = ["json"]
+
+"""List of possible file extensions for YAML files."""
+YAML_EXTENSIONS = ["yml", "yaml"]
+
+"""List of possible file extensions for pset configuration files."""
+CONFIG_EXTENSIONS = JSON_EXTENSIONS + YAML_EXTENSIONS
 
 def path_is_root(path):
+    """Check if a path resolves to the root of the filesystem."""
     canonical = os.path.realpath(path)
     return canonical == os.path.dirname(canonical)
 
 def repository_file(filename):
+    """Return the absolute path to a file in the pset repository.
+
+    The pset repository is the directory containing pset.py, and
+    filename is resolved relative to this directory.
+    """
     this_file = os.path.realpath(__file__)
     this_dir = os.path.dirname(this_file)
     return os.path.join(this_dir, filename)
 
 def print_stderr(*args, **kwargs):
+    """Print a message to stderr.
+
+    args and kwargs are passed to the print function.
+    """
     return print(*args, file=sys.stderr, **kwargs)
 
 def parse_json(filename):
+    """Parse a JSON file and return the parsed object."""
     with open(filename) as f:
         return json.load(f)
 
 def parse_yaml(filename):
+    """Parse a YAML file and return the parsed object."""
     with open(filename) as f:
-        import yaml
         return yaml.safe_load(f)
 
 class ConfigError(Exception):
+    """Error thrown while parsing and validating configuration."""
     pass
 
+# FIXME: is this used?
 class ConfigParserUnavailableError(ConfigError):
     pass
 
+# FIXME: is this used?
 class ConfigNotFoundError(ConfigError):
     pass
 
+# FIXME: is this used?
 class ConfigParseError(ConfigError):
     pass
 
+# FIXME: is this used?
 class ConfigValidationError(ConfigError):
     pass
 
+# FIXME: is this used?
 class ConfigConversionError(ConfigError):
     pass
 
 class Config:
+    """Configuration parsing and validation engine."""
 
     def __init__(self):
-        self.setup()
+        """Parse and validate configuration.
+
+        After construction, configuration data may be queried
+        immediately.
+        """
         self.read_config_descriptions()
         self.read_default_config()
+        self.read_user_config()
         self.read_command_line_arguments()
 
-    def setup(self):
-        self.warn_fatal = False
-
     def read_config_descriptions(self):
+        """Read and store configuration schema description from desc.json.
+
+        The schema is not validated. Loading an invalid schema results
+        in undefined behavior.
+        """
         self.config_keys = parse_json(repository_file("desc.json"))
 
     def read_default_config(self):
+        """Read and store default configuration.
+
+        If the default configuration file is unavailable or malformed,
+        throw an error.
+        """
         default_config_file = repository_file("pset.json")
         self.warn_fatal = True
         self.default_config = self.load_config_file(default_config_file)
+        del self.warn_fatal
+
+    def read_user_config(self):
         self.warn_fatal = False
+        self.user_configs = []
+        cur_dir = os.getcwd()
+        while True:
+            cur_dir = os.path.realpath(cur_dir)
+            filenames = sorted(os.listdir(cur_dir))
+            for filename in filenames:
+                for root in CONFIG_ROOTS:
+                    for ext in CONFIG_EXTENSIONS:
+                        if filename == root + "." + ext:
+                            path = os.path.join(cur_dir, filename)
+                            self.user_configs.append(
+                                (path, self.load_config_file(path)))
+            if path_is_root(cur_dir):
+                break
+            cur_dir = os.path.split(cur_dir)[0]
+        del self.warn_fatal
 
     def load_config_file(self, filename):
+        """Load a configuration file and return the data.
+
+        If the file is unavailable or malformed, signal this using the
+        warn function. If the warn function does not throw an error,
+        make an effort to extract as much useful data as possible from
+        malformed configuration file.
+        """
         try:
             ext = os.path.splitext(filename)[1]
-            if ext in ['yml', 'yaml']:
-                try:
-                    import yaml
-                except ImportError:
+            if ext in YAML_EXTENSIONS:
+                if YAML_AVAILABLE:
+                    config = parse_yaml(filename)
+                else:
                     self.warn("Ignoring '{}' because PyYAML is not available"
                               .format(filename))
                     return {}
-                config = parse_yaml(filename)
-            elif ext == 'json':
+            elif ext in JSON_EXTENSIONS:
                 config = parse_json(filename)
             else:
                 raise AssertionError("Unexpected file extension for file '{}'"
@@ -95,10 +168,15 @@ class Config:
             if key not in self.config_keys:
                 self.warn("Ignoring unknown key '{}' from '{}'"
                           .format(key, filename))
-                return {}
+                del config[key]
         return config
 
     def warn(self, msg):
+        """Signal a configuration parsing or validation warning.
+
+        If warn_fatal is true, throw an error. Otherwise, print the
+        message to stderr.
+        """
         if self.warn_fatal:
             raise AssertionError(
                 "Got warning while loading default config file: {}"
@@ -106,6 +184,31 @@ class Config:
         print_stderr(msg)
 
     def read_command_line_arguments(self):
+        """Read and store configuration from the command-line arguments.
+
+        The syntax is as follows. You may assign a value to an
+        arbitrary key in the configuration map, and this value can be
+        a string, list of strings, or map of strings. (Integers,
+        booleans, and so on are interpreted from strings.)
+
+        The syntax '--foo bar' will assign the string "bar" to the key
+        "foo". The syntax '--foo bar baz quux' will assign the list
+        ["bar", "baz", "quux"] to the key "foo". The syntax '--foo
+        bar=baz quux=flarble' will assign the map {"bar": "baz",
+        "quux": "flarble"} to the key "foo".
+
+        To be precise, an argument beginning with '--' signals a key,
+        and all arguments until the next one beginning with '--' are
+        values. All arguments before the first one beginning with '--'
+        are ignored, with a warning. Whether a sequence of values is a
+        list or map is determined by whether the first value contains
+        an equals sign. In a list, all values containing equals signs
+        are ignored, with a warning. In a map, all values not
+        containing equals signs are ignored, with a warning. In a map,
+        the values are separated into key and value by partitioning at
+        the first equals sign. If no values are specified, the value
+        is set to None.
+        """
         self.cl_config = {}
         args = sys.argv[1:]
         key = None
@@ -139,12 +242,20 @@ class Config:
                     break
                 key = arg[2:]
                 values = []
+            elif key is None:
+                self.warn("Ignoring arg '{}' with no key specified"
+                          .format(arg))
             else:
                 values.append(arg)
-        return self.cl_config
+        for key in self.cl_config.values():
+            if key not in self.config_keys:
+                self.warn(
+                    "Ignoring unknown key '{}' from command-line arguments"
+                    .format(key))
+                del self.cl_config[key]
 
     def get_boolean(self, key):
-        def convert(val):
+        def convert(val, context):
             if val in [True, False, None]:
                 return val
             elif str(val).lower() in ["y", "yes", "true", "on", "1"]:
@@ -152,13 +263,90 @@ class Config:
             elif str(val).upper() in ["n", "no", "false", "off", "0"]:
                 return False
             else:
-                raise ConfigConversionError
-        val = self.get(key, convert)
+                raise ConfigConversionError(
+                    "must be y/n, yes/no, true/false, on/off, or 0/1")
+        return self.get(key, convert)
+
+    def get_string(self, key):
+        def convert(val, context):
+            return str(val)
+        return self.get(key, convert)
+
+    def get_length(self, key):
+        # For now.
+        return self.get_string(key)
+
+    def get_enum(self, key, allowed_values):
+        def convert(val, context):
+            val = str(val)
+            if val in allowed_values:
+                return val
+            else:
+                raise ConfigConversionError(
+                    "must be one of: " + ", ".join(allowed_values))
+        return self.get(key, convert)
+
+    def get_string_list(self, key):
+        def convert(vals, context):
+            return [str(val) for val in vals]
+        return self.get(key, convert)
+
+    def get_enum_list(self, key, allowed_values, unique=False):
+        def convert(vals, context):
+            if not isinstance(vals, list):
+                raise ConfigConversionError("must be list")
+            result = []
+            seen = set()
+            for val in vals:
+                val = str(val)
+                if unique and val in seen:
+                    self.warn(
+                        "ignoring duplicate value '{}' for key '{}'"
+                        .format(val, key) + context)
+                elif val in allowed_values:
+                    result.append(val)
+                    seen.add(val)
+                else:
+                    self.warn(
+                        "ignoring invalid value '{}' for key '{}': "
+                        "must be one of: " + ", ".join(allowed_values))
+            return result
+        return self.get(key, convert)
+
+    def get_enum_enum_map(self, key, allowed_keys, allowed_values):
+        def convert(kv_map, context):
+            if not isinstance(kv_map, dict):
+                raise ConfigConversionError("must be map")
+            result = {}
+            for key, val in kv_map.items():
+                key = str(key)
+                val = str(val)
+                if key in result:
+                    self.warn(
+                        "ignoring extra value '{}' for key '{}'"
+                        .format(val, key) + context)
+                elif key not in allowed_keys:
+                    self.warn(
+                        "ignoring value '{}' for invalid key '{}': key "
+                        "key must be one of: ".format(val, key) +
+                        ", ".join(allowed_keys))
+                elif val not in allowed_values:
+                    self.warn(
+                        "ignoring invalid value '{}' for key '{}': key "
+                        "value must be one of: ".format(val, key) +
+                        ", ".join(allowed_values))
+                else:
+                    result[key] = val
+            return result
+        return self.get(key, convert)
+
+    def get(key, convert):
+        ... # FIXME
 
 def generate_macro_args():
     args = []
     for i in range(1, 10):
-        args.append("#" + i)
+        args.append("#" + str(i))
     return args
 
 MACRO_ARGS = generate_macro_args()
@@ -233,7 +421,7 @@ def generate_document(config):
     packages = []
 
     # Add document class options that we can determine right away.
-    font_size = config.get_enum("font-size", [10, 11, 12])
+    font_size = config.get_enum("font-size", ["10", "11", "12"])
     document_class_options.append(font_size + "pt")
 
     # Add conditional packages.
