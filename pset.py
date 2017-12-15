@@ -1,3 +1,160 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import re
+import sys
+
+CONFIG_ROOTS = [".pset", "pset"]
+CONFIG_EXTENSIONS = ["yaml", "yml", "json"]
+
+def path_is_root(path):
+    canonical = os.path.realpath(path)
+    return canonical == os.path.dirname(canonical)
+
+def repository_file(filename):
+    this_file = os.path.realpath(__file__)
+    this_dir = os.path.dirname(this_file)
+    return os.path.join(this_dir, filename)
+
+def print_stderr(*args, **kwargs):
+    return print(*args, file=sys.stderr, **kwargs)
+
+def parse_json(filename):
+    with open(filename) as f:
+        return json.load(f)
+
+def parse_yaml(filename):
+    with open(filename) as f:
+        import yaml
+        return yaml.safe_load(f)
+
+class ConfigError(Exception):
+    pass
+
+class ConfigParserUnavailableError(ConfigError):
+    pass
+
+class ConfigNotFoundError(ConfigError):
+    pass
+
+class ConfigParseError(ConfigError):
+    pass
+
+class ConfigValidationError(ConfigError):
+    pass
+
+class ConfigConversionError(ConfigError):
+    pass
+
+class Config:
+
+    def __init__(self):
+        self.setup()
+        self.read_config_descriptions()
+        self.read_default_config()
+        self.read_command_line_arguments()
+
+    def setup(self):
+        self.warn_fatal = False
+
+    def read_config_descriptions(self):
+        self.config_keys = parse_json(repository_file("desc.json"))
+
+    def read_default_config(self):
+        default_config_file = repository_file("pset.json")
+        self.warn_fatal = True
+        self.default_config = self.load_config_file(default_config_file)
+        self.warn_fatal = False
+
+    def load_config_file(self, filename):
+        try:
+            ext = os.path.splitext(filename)[1]
+            if ext in ['yml', 'yaml']:
+                try:
+                    import yaml
+                except ImportError:
+                    self.warn("Ignoring '{}' because PyYAML is not available"
+                              .format(filename))
+                    return {}
+                config = parse_yaml(filename)
+            elif ext == 'json':
+                config = parse_json(filename)
+            else:
+                raise AssertionError("Unexpected file extension for file '{}'"
+                                     .format(filename))
+        except (json.JSONDecodeError, yaml.YAMLError) as e:
+            self.warn("Ignoring '{}' because it is malformed: {}"
+                      .format(filename, e.message))
+            return {}
+        if not isinstance(config, dict):
+            self.warn("Ignoring '{}' because it is not a map: {}"
+                      .format(filename, repr(config)))
+            return {}
+        for key in config.values():
+            if key not in self.config_keys:
+                self.warn("Ignoring unknown key '{}' from '{}'"
+                          .format(key, filename))
+                return {}
+        return config
+
+    def warn(self, msg):
+        if self.warn_fatal:
+            raise AssertionError(
+                "Got warning while loading default config file: {}"
+                .format(msg))
+        print_stderr(msg)
+
+    def read_command_line_arguments(self):
+        self.cl_config = {}
+        args = sys.argv[1:]
+        key = None
+        values = []
+        for arg in args + [None]:
+            if arg.startswith("--") or arg is None:
+                if len(values) >= 2:
+                    is_map = None
+                    for value in values:
+                        if is_map not in (None, "=" in value):
+                            self.warn(
+                                "Ignoring command-line setting of key '{}' "
+                                .format(key) +
+                                "due to inconsistent args '{}' and '{}'"
+                                .format(values[0], value))
+                            is_map = None
+                            break
+                        is_map = "=" in value
+                    if is_map:
+                        value_map = {}
+                        for value in values:
+                            subkey, val = (re.match(r"^(.*?)=(.*)$", value)
+                                           .groups()[1:3])
+                            value_map[subkey] = val
+                        self.cl_config[key] = value_map
+                elif len(values) == 1:
+                    self.cl_config[key] = values[0]
+                else:
+                    self.cl_config[key] = None
+                if arg is None:
+                    break
+                key = arg[2:]
+                values = []
+            else:
+                values.append(arg)
+        return self.cl_config
+
+    def get_boolean(self, key):
+        def convert(val):
+            if val in [True, False, None]:
+                return val
+            elif str(val).lower() in ["y", "yes", "true", "on", "1"]:
+                return True
+            elif str(val).upper() in ["n", "no", "false", "off", "0"]:
+                return False
+            else:
+                raise ConfigConversionError
+        val = self.get(key, convert)
+
 def generate_macro_args():
     args = []
     for i in range(1, 10):
@@ -60,7 +217,7 @@ def format_marginal(content, variables):
     elif content == "pagenumber":
         return r"\thepage{} of \pageref{LastPage}"
     else:
-        raise AssertionError
+        raise AssertionError("Unknown content key: " + content)
 
 def format_problem(config, problem, *args):
     return [r"\section*{{{}}}".format(problem)], 1
@@ -267,5 +424,8 @@ def generate_document(config):
     blocks = aggregate_blocks + preamble_blocks + body_blocks
     document_block = combine_blocks(*blocks)
     document = combine_block(document_block)
+
+    # Print remaining warnings.
+    config.warn_unused()
 
     return document

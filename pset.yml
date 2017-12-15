@@ -2,7 +2,7 @@ assignment: null
 class: null
 clearpage: true
 clearpage-option: true
-document-macros: []
+document-preamble: []
 duedate: null
 fancy-lists: true
 fancy-marginals: true
