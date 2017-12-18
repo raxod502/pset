@@ -58,28 +58,8 @@ def parse_yaml(filename):
     with open(filename) as f:
         return yaml.safe_load(f)
 
-class ConfigError(Exception):
-    """Error thrown while parsing and validating configuration."""
-    pass
-
-# FIXME: is this used?
-class ConfigParserUnavailableError(ConfigError):
-    pass
-
-# FIXME: is this used?
-class ConfigNotFoundError(ConfigError):
-    pass
-
-# FIXME: is this used?
-class ConfigParseError(ConfigError):
-    pass
-
-# FIXME: is this used?
-class ConfigValidationError(ConfigError):
-    pass
-
-# FIXME: is this used?
-class ConfigConversionError(ConfigError):
+class ConfigConversionError(Exception):
+    """Error thrown when configuration value is unusably malformed."""
     pass
 
 class Config:
@@ -111,28 +91,32 @@ class Config:
         throw an error.
         """
         default_config_file = repository_file("pset.json")
-        self.warn_fatal = True
-        self.default_config = self.load_config_file(default_config_file)
-        del self.warn_fatal
+        try:
+            self.warn_fatal = True
+            self.default_config = self.load_config_file(default_config_file)
+        finally:
+            del self.warn_fatal
 
     def read_user_config(self):
-        self.warn_fatal = False
-        self.user_configs = []
-        cur_dir = os.getcwd()
-        while True:
-            cur_dir = os.path.realpath(cur_dir)
-            filenames = sorted(os.listdir(cur_dir))
-            for filename in filenames:
-                for root in CONFIG_ROOTS:
-                    for ext in CONFIG_EXTENSIONS:
-                        if filename == root + "." + ext:
-                            path = os.path.join(cur_dir, filename)
-                            self.user_configs.append(
-                                (path, self.load_config_file(path)))
-            if path_is_root(cur_dir):
-                break
-            cur_dir = os.path.split(cur_dir)[0]
-        del self.warn_fatal
+        try:
+            self.warn_fatal = False
+            self.user_configs = []
+            cur_dir = os.getcwd()
+            while True:
+                cur_dir = os.path.realpath(cur_dir)
+                filenames = sorted(os.listdir(cur_dir))
+                for filename in filenames:
+                    for root in CONFIG_ROOTS:
+                        for ext in CONFIG_EXTENSIONS:
+                            if filename == root + "." + ext:
+                                path = os.path.join(cur_dir, filename)
+                                self.user_configs.append(
+                                    (path, self.load_config_file(path)))
+                if path_is_root(cur_dir):
+                    break
+                cur_dir = os.path.split(cur_dir)[0]
+        finally:
+            del self.warn_fatal
 
     def load_config_file(self, filename):
         """Load a configuration file and return the data.
@@ -340,8 +324,25 @@ class Config:
             return result
         return self.get(key, convert)
 
-    def get(key, convert):
-        ... # FIXME
+    def get(self, key, convert):
+        sources = [
+            (self.cl_config, " from command-line arguments", False),
+            *((cfg, " from '{}'".format(fname), False)
+              for cfg, fname in self.user_configs),
+            (self.default_config, " from default config", True)
+        ]
+        try:
+            for config, context, warn_fatal in sources:
+                self.warn_fatal = warn_fatal
+                if key in config:
+                    try:
+                        return convert(config[key], context)
+                    except ConfigConversionError as e:
+                        self.warn("ignoring invalid value '{}' for key '{}'"
+                                  .format(config[key], key) + context + ": " +
+                                  e.message)
+        finally:
+            del self.warn_fatal
 
 def generate_macro_args():
     args = []
