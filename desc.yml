@@ -15,8 +15,8 @@ clearpage-option: |
   Whether to make the 'clearpage' option customizable directly within
   the document.
 
-document-macros: |
-  Additional document- or domain-specific macros to define.
+document-preamble: |
+  Additional lines to add to the preamble.
 
 duedate: |
   When the assignment is due.

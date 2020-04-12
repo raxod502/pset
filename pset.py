@@ -14,17 +14,17 @@ except ImportError:
             return None
     YAML_AVAILABLE = False
 
-"""List of possible base filenames for pset configuration files."""
 CONFIG_ROOTS = [".pset", "pset"]
+"""List of possible base filenames for pset configuration files."""
 
+JSON_EXTENSIONS = [".json"]
 """List of possible file extensions for JSON files."""
-JSON_EXTENSIONS = ["json"]
 
+YAML_EXTENSIONS = [".yml", ".yaml"]
 """List of possible file extensions for YAML files."""
-YAML_EXTENSIONS = ["yml", "yaml"]
 
-"""List of possible file extensions for pset configuration files."""
 CONFIG_EXTENSIONS = JSON_EXTENSIONS + YAML_EXTENSIONS
+"""List of possible file extensions for pset configuration files."""
 
 def path_is_root(path):
     """Check if a path resolves to the root of the filesystem."""
@@ -58,6 +58,10 @@ def parse_yaml(filename):
     with open(filename) as f:
         return yaml.safe_load(f)
 
+class UserError(Exception):
+    """Error thrown when the user does something wrong."""
+    pass
+
 class ConfigConversionError(Exception):
     """Error thrown when configuration value is unusably malformed."""
     pass
@@ -75,6 +79,7 @@ class Config:
         self.read_default_config()
         self.read_user_config()
         self.read_command_line_arguments()
+        self.ignored = set()
 
     def read_config_descriptions(self):
         """Read and store configuration schema description from desc.json.
@@ -108,7 +113,7 @@ class Config:
                 for filename in filenames:
                     for root in CONFIG_ROOTS:
                         for ext in CONFIG_EXTENSIONS:
-                            if filename == root + "." + ext:
+                            if filename == root + ext:
                                 path = os.path.join(cur_dir, filename)
                                 self.user_configs.append(
                                     (path, self.load_config_file(path)))
@@ -148,7 +153,7 @@ class Config:
             self.warn("Ignoring '{}' because it is not a map: {}"
                       .format(filename, repr(config)))
             return {}
-        for key in config.values():
+        for key in config:
             if key not in self.config_keys:
                 self.warn("Ignoring unknown key '{}' from '{}'"
                           .format(key, filename))
@@ -163,7 +168,7 @@ class Config:
         """
         if self.warn_fatal:
             raise AssertionError(
-                "Got warning while loading default config file: {}"
+                "Got warning while reading default config file: {}"
                 .format(msg))
         print_stderr(msg)
 
@@ -193,52 +198,58 @@ class Config:
         the first equals sign. If no values are specified, the value
         is set to None.
         """
-        self.cl_config = {}
-        args = sys.argv[1:]
-        key = None
-        values = []
-        for arg in args + [None]:
-            if arg.startswith("--") or arg is None:
-                if len(values) >= 2:
-                    is_map = None
-                    for value in values:
-                        if is_map not in (None, "=" in value):
-                            self.warn(
-                                "Ignoring command-line setting of key '{}' "
-                                .format(key) +
-                                "due to inconsistent args '{}' and '{}'"
-                                .format(values[0], value))
-                            is_map = None
-                            break
-                        is_map = "=" in value
-                    if is_map:
-                        value_map = {}
+        try:
+            self.warn_fatal = False
+            self.cl_config = {}
+            args = sys.argv[1:]
+            key = None
+            values = []
+            for arg in args + [None]:
+                if key is None:
+                    if arg is not None:
+                        self.warn("Ignoring arg '{}' with no key specified"
+                                  .format(arg))
+                elif arg is None or arg.startswith("--"):
+                    if len(values) >= 2:
+                        is_map = None
                         for value in values:
-                            subkey, val = (re.match(r"^(.*?)=(.*)$", value)
-                                           .groups()[1:3])
-                            value_map[subkey] = val
-                        self.cl_config[key] = value_map
-                elif len(values) == 1:
-                    self.cl_config[key] = values[0]
+                            if is_map not in (None, "=" in value):
+                                self.warn(
+                                    "Ignoring command-line setting " +
+                                    "of key '{}' ".format(key) +
+                                    "due to inconsistent args '{}' and '{}'"
+                                    .format(values[0], value))
+                                is_map = None
+                                break
+                            is_map = "=" in value
+                        if is_map:
+                            value_map = {}
+                            for value in values:
+                                subkey, val = (re.match(r"^(.*?)=(.*)$", value)
+                                               .groups()[1:3])
+                                value_map[subkey] = val
+                            self.cl_config[key] = value_map
+                    elif len(values) == 1:
+                        self.cl_config[key] = values[0]
+                    else:
+                        self.cl_config[key] = None
+                    if arg is None:
+                        break
+                    key = arg[2:]
+                    values = []
                 else:
-                    self.cl_config[key] = None
-                if arg is None:
-                    break
-                key = arg[2:]
-                values = []
-            elif key is None:
-                self.warn("Ignoring arg '{}' with no key specified"
-                          .format(arg))
-            else:
-                values.append(arg)
-        for key in self.cl_config.values():
-            if key not in self.config_keys:
-                self.warn(
-                    "Ignoring unknown key '{}' from command-line arguments"
-                    .format(key))
-                del self.cl_config[key]
+                    values.append(arg)
+            for key in self.cl_config.values():
+                if key not in self.config_keys:
+                    self.warn(
+                        "Ignoring unknown key '{}' from command-line arguments"
+                        .format(key))
+                    del self.cl_config[key]
+        finally:
+            del self.warn_fatal
 
     def get_boolean(self, key):
+        """Get value for key and coerce to boolean."""
         def convert(val, context):
             if val in [True, False, None]:
                 return val
@@ -252,15 +263,18 @@ class Config:
         return self.get(key, convert)
 
     def get_string(self, key):
+        """Get value for key and coerce to string."""
         def convert(val, context):
             return str(val)
         return self.get(key, convert)
 
     def get_length(self, key):
+        """Get value for key and coerce to length."""
         # For now.
         return self.get_string(key)
 
     def get_enum(self, key, allowed_values):
+        """Get value for key and coerce to one of allowed_values."""
         def convert(val, context):
             val = str(val)
             if val in allowed_values:
@@ -271,11 +285,16 @@ class Config:
         return self.get(key, convert)
 
     def get_string_list(self, key):
+        """Get value for key and coerce to list of strings."""
         def convert(vals, context):
             return [str(val) for val in vals]
         return self.get(key, convert)
 
     def get_enum_list(self, key, allowed_values, unique=False):
+        """Get value for key and coerce to list of values from allowed_values.
+
+        If unique is True, ignore duplicate values.
+        """
         def convert(vals, context):
             if not isinstance(vals, list):
                 raise ConfigConversionError("must be list")
@@ -298,6 +317,11 @@ class Config:
         return self.get(key, convert)
 
     def get_enum_enum_map(self, key, allowed_keys, allowed_values):
+        """Get value for key and coerce to map.
+
+        Keys and values which are not found in allowed_keys and
+        allowed_values, respectively, are ignored.
+        """
         def convert(kv_map, context):
             if not isinstance(kv_map, dict):
                 raise ConfigConversionError("must be map")
@@ -325,6 +349,22 @@ class Config:
         return self.get(key, convert)
 
     def get(self, key, convert):
+        """Get and coerce the value for given key from configuration sources.
+
+        convert is a function which takes a value and attempts to
+        coerce it to the desired type. If this is possible, it returns
+        the value; otherwise, it throws a ConfigConversionError.
+        convert takes as its second argument a string identifying the
+        context of the coercion, which can be used in warning
+        messages.
+
+        First the command-line arguments are checked, then
+        user-created configuration files, starting in the current
+        directory and checking upwards, and finally the default
+        configuration. The first result which can be coerced
+        successfully is returned. If no value is found, a UserError is
+        thrown.
+        """
         sources = [
             (self.cl_config, " from command-line arguments", False),
             *((cfg, " from '{}'".format(fname), False)
@@ -334,25 +374,38 @@ class Config:
         try:
             for config, context, warn_fatal in sources:
                 self.warn_fatal = warn_fatal
-                if key in config:
+                if key in config and config[key] is not None:
                     try:
                         return convert(config[key], context)
                     except ConfigConversionError as e:
                         self.warn("ignoring invalid value '{}' for key '{}'"
                                   .format(config[key], key) + context + ": " +
                                   e.message)
+            raise UserError("no value specified for key '{}'".format(key))
         finally:
             del self.warn_fatal
 
+    def ignored(self, key):
+        self.ignored.add(key)
+
+    def warn_ignored(self, key):
+        ... # FIXME
+
 def generate_macro_args():
+    """Generate the value of MACRO_ARGS."""
     args = []
     for i in range(1, 10):
         args.append("#" + str(i))
     return args
 
 MACRO_ARGS = generate_macro_args()
+"""A list of strings that denote arguments in a TeX macro.
+
+This is #1, #2, ..., #9.
+"""
 
 def generate_list_styles():
+    """Generate the value of LIST_STYLES."""
     formats = [
         "({})", "{})", "{}.",
     ]
@@ -370,17 +423,34 @@ def generate_list_styles():
     return list_styles
 
 LIST_STYLES = generate_list_styles()
+r"""A map from list style strings to TeX code for package enumitem.
+
+For example, '(I)' maps to '(\Roman*)'.
+"""
 
 VARIABLES = ["name", "assignment", "class", "duedate"]
+"""List of variables that might be defined by the templating engine."""
+
 IFS = ["clearpage"]
+"""List of if switches that might be defined by the templating engine."""
+
 MACROS = ["problem", "solution", "maybeclearpage"]
+"""List of macros that might be defined by the templating engine."""
 
 MARGINALS = VARIABLES + ["pagenumber"]
+"""List of values which can placed in the header and footer."""
+
 MARGINAL_POSITIONS = [
     "lhead", "chead", "rhead", "lfoot", "cfoot", "rfoot"
 ]
+"""List of header and footer positions which can be customized."""
 
 def sort_by(items, order):
+    """Sort the items into the given order. Return a new list.
+
+    All items which appear in order are sorted first, in that order,
+    followed by the remaining items, sorted in natural order.
+    """
     def sort_key(item):
         try:
             return [order.index(item), item]
@@ -388,10 +458,15 @@ def sort_by(items, order):
             return [len(order), item]
     return sorted(items, key=sort_key)
 
-def combine_block(*commands):
-    return "\n".join(commands)
+def combine_block(block):
+    """Combine a block of commands into a single string."""
+    return "\n".join(block)
 
 def combine_blocks(*groups):
+    """Combine several blocks of commands into one.
+
+    This means that blank lines are inserted between them.
+    """
     combined = []
     for i, group in groups:
         if i != 0:
@@ -400,6 +475,13 @@ def combine_blocks(*groups):
     return combined
 
 def format_marginal(content, variables):
+    """Generate TeX code for the content of a marginal.
+
+    content is an element of MARGINALS, and variables is a subset of
+    VARIABLES indicating variables that have been used so far. If the
+    TeX code generated depends on a variable being defined, then add
+    it to variables.
+    """
     if content in VARIABLES:
         variables.add(content)
         return r"\{}".format(content)
@@ -409,12 +491,23 @@ def format_marginal(content, variables):
         raise AssertionError("Unknown content key: " + content)
 
 def format_problem(config, problem, *args):
+    r"""Formatter function for problems.
+
+    Used to generate the \problem macro or to generate problems
+    on-the-fly.
+    """
     return [r"\section*{{{}}}".format(problem)], 1
 
 def format_solution(config, *args):
+    r"""Formatter function for solutions.
+
+    Used to generate the \solution macro or to generate solutions
+    on-the-fly.
+    """
     return [r"\hrulefill"], 0
 
 def generate_document(config):
+    """Given configuration, generate a document as a string."""
     # Declare variables that will be used to generate the very first
     # section (document class and packages).
     document_class = "article"
@@ -452,20 +545,22 @@ def generate_document(config):
     # Handle fancy margins.
     if config.get_boolean("fancy-marginals"):
         packages.append("fancyhdr")
-        order = config.get_enum_list("marginal-position-order", unique=True)
+        order = config.get_enum_list(
+            "marginal-position-order", MARGINAL_POSITIONS, unique=True)
         def handle_marginals(key_name, style_name):
             block = []
-            for position, content in sort_by(
-                    config.get_enum_enum_map(
-                        key_name, MARGINAL_POSITIONS, MARGINALS),
-                    order):
-                macro = format_marginal(content, variables)
-                block.append(r"  \{}{{{}}}".format(macro))
+            marginals = config.get_enum_enum_map(
+                key_name, MARGINAL_POSITIONS, MARGINALS)
+            positions = sort_by(marginals.keys(), order)
+            for position in positions:
+                content = marginals[position]
+                content_code = format_marginal(content, variables)
+                block.append(r"  \{}{{{}}}".format(position, content_code))
             if block:
                 block.sort()
                 block.insert(0, r"  \fancyhf{}")
                 block.insert(
-                    0, r"\fancypagestyle{{{}}}{" .format(style_name))
+                    0, r"\fancypagestyle{" + style_name + "}{")
                 block.append(r"}")
                 preamble_blocks.append(block)
         page_styles_block = []
@@ -618,3 +713,16 @@ def generate_document(config):
     config.warn_unused()
 
     return document
+
+def print_usage():
+    print_stderr("usage: FIXME")
+
+def print_usage_and_exit():
+    print_usage()
+    sys.exit(1)
+
+if __name__ == "__main__":
+    config = Config()
+    document = generate_document(config)
+    with open("a.out", "w") as f:
+        f.write(document)

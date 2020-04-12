@@ -3,7 +3,7 @@
   "class": "The name of the class.\n\nExample: \"Math 171, Fall 2017\"\n",
   "clearpage": "Whether to start a new page after each problem solution.\n",
   "clearpage-option": "Whether to make the 'clearpage' option customizable directly within\nthe document.\n",
-  "document-macros": "Additional document- or domain-specific macros to define.\n",
+  "document-preamble": "Additional lines to add to the preamble.\n",
   "duedate": "When the assignment is due.\n\nExample: \"Thursday, October 12\"\n",
   "fancy-lists": "Whether to load the 'enumitem' package. This is required in order to\ncustomize list numbering.\n",
   "fancy-marginals": "Whether to load the 'fancyhdr' package. This is required in order to add\ncontent to the header and footer.\n",
