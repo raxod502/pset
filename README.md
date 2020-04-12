@@ -1,6 +1,9 @@
 **pset**: The simplest LaTeX problem-set templating engine that could
 possibly work.
 
+This project was abandoned not for any technical reason, but simply
+because I lost interest.
+
 ## Summary
 
 _pset_ is a LaTeX generator. It reads extensive configuration data
